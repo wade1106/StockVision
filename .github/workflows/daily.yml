@@ -1,0 +1,42 @@
+name: Daily Stock Report
+
+on:
+  schedule:
+    - cron: "30 9 * * 1-5"  # 09:30 UTC = 17:30 TST，週一至週五
+  workflow_dispatch:         # 允許手動觸發
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: api
+        run: uv sync
+
+      - name: Run daily pipeline
+        working-directory: api
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
+        run: uv run python scripts/daily_run.py
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-log-${{ github.run_id }}
+          path: api/logs/daily_*.log
+          retention-days: 14

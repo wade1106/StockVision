@@ -1,0 +1,36 @@
+name: Bootstrap (手動一次性初始化)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 歷史資料抓取可能需要較長時間
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: api
+        run: uv sync
+
+      - name: Run bootstrap
+        working-directory: api
+        run: uv run python scripts/bootstrap.py
+
+      - name: Train model
+        working-directory: api
+        run: uv run python scripts/train.py
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lgbm-model
+          path: api/models/lgbm_model.pkl
+          retention-days: 90
