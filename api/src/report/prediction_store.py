@@ -95,7 +95,7 @@ def _actual_return(ticker: str, pred_date: date) -> float | None:
 
 def build_comparison(start: date, end: date) -> list[dict]:
     """
-    建立 start~end 日期範圍內的預測 vs 實際比對清單。
+    建立 start~end 日期範圍內的 預測股價 vs 實際股價 清單。
     每筆：date, ticker, name, direction, prob, actual_return, correct
     """
     rows = []

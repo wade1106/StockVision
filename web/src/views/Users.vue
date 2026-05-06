@@ -1,12 +1,18 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 
+const router = useRouter()
 const users = ref([])
 const loading = ref(true)
 const refreshing = ref(false)
 const toast = ref(null)  // { msg, type: 'success'|'error' }
 let toastTimer = null
+
+function authHeaders() {
+  return { Authorization: `Bearer ${localStorage.getItem('sv_token') || ''}` }
+}
 
 function showToast(msg, type = 'success') {
   clearTimeout(toastTimer)
@@ -16,10 +22,15 @@ function showToast(msg, type = 'success') {
 
 async function loadUsers() {
   try {
-    const res = await axios.get('/api/users')
+    const res = await axios.get('/api/users', { headers: authHeaders() })
     users.value = res.data.users
   } catch (e) {
-    showToast('無法載入成員資料', 'error')
+    if (e.response?.status === 401 || e.response?.status === 403) {
+      localStorage.removeItem('sv_token')
+      router.push('/login')
+    } else {
+      showToast('無法載入成員資料', 'error')
+    }
   } finally {
     loading.value = false
   }
@@ -28,7 +39,7 @@ async function loadUsers() {
 async function refreshNames() {
   refreshing.value = true
   try {
-    const res = await axios.post('/api/users/refresh')
+    const res = await axios.post('/api/users/refresh', {}, { headers: authHeaders() })
     await loadUsers()
     if (res.data.updated === 0) {
       showToast('名稱已是最新', 'success')
@@ -36,10 +47,21 @@ async function refreshNames() {
       showToast(`已更新 ${res.data.updated} 筆名稱`, 'success')
     }
   } catch (e) {
-    showToast('重新整理失敗', 'error')
+    if (e.response?.status === 401 || e.response?.status === 403) {
+      localStorage.removeItem('sv_token')
+      router.push('/login')
+    } else {
+      showToast('重新整理失敗', 'error')
+    }
   } finally {
     refreshing.value = false
   }
+}
+
+async function logout() {
+  await axios.post('/api/logout', {}, { headers: authHeaders() }).catch(() => {})
+  localStorage.removeItem('sv_token')
+  router.push('/login')
 }
 
 onMounted(loadUsers)
@@ -84,9 +106,12 @@ function formatDate(iso) {
 
   <div class="header-row">
     <h1>LINE 成員列表</h1>
-    <button class="btn-refresh" :disabled="refreshing" @click="refreshNames">
-      {{ refreshing ? '更新中...' : '重新整理名稱' }}
-    </button>
+    <div class="btn-group">
+      <button class="btn-refresh" :disabled="refreshing" @click="refreshNames">
+        {{ refreshing ? '更新中...' : '重新整理名稱' }}
+      </button>
+      <button class="btn-logout" @click="logout">登出</button>
+    </div>
   </div>
 
   <div v-if="loading" class="empty">載入中...</div>
@@ -175,8 +200,11 @@ function formatDate(iso) {
 
 .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 h1 { font-size: 22px; font-weight: 700; margin: 0; }
-.btn-refresh { padding: 7px 16px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; background: #1a1a2e; color: #fff; cursor: pointer; }
+.btn-group { display: flex; gap: 8px; }
+.btn-refresh, .btn-logout { padding: 7px 16px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; }
+.btn-refresh { background: #1a1a2e; color: #fff; }
 .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-logout { background: #e74c3c; color: #fff; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
 .stat-box { background: #fff; border-radius: 10px; padding: 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .stat-box .value { font-size: 28px; font-weight: 700; }

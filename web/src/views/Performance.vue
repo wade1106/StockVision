@@ -131,7 +131,7 @@ function sortIcon(key) {
 </script>
 
 <template>
-  <h1>預測 vs 實際比對</h1>
+  <h1>預測股價 vs 實際股價</h1>
 
   <form class="filter" @submit.prevent="fetchData">
     <label>開始日期 <input type="date" v-model="start" /></label>

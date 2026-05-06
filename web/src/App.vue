@@ -2,7 +2,7 @@
   <nav>
     <span class="brand">StockVision</span>
     <RouterLink to="/users">LINE 成員</RouterLink>
-    <RouterLink to="/performance">預測比對</RouterLink>
+    <RouterLink to="/performance">預測股價 vs 實際股價</RouterLink>
   </nav>
   <main>
     <RouterView />
