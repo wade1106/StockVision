@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "30 9 * * 1-5"  # 09:30 UTC = 17:30 TST，週一至週五
   workflow_dispatch:         # 允許手動觸發
+    inputs:
+      date:
+        description: "執行日期（YYYY-MM-DD），留空使用今日"
+        required: false
+        default: ""
 
 jobs:
   run:
@@ -31,7 +36,12 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
           LINE_GROUP_ID: ${{ secrets.LINE_GROUP_ID }}
-        run: uv run python scripts/daily_run.py
+        run: |
+          DATE_ARG=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            DATE_ARG="--date ${{ github.event.inputs.date }}"
+          fi
+          uv run python scripts/daily_run.py $DATE_ARG
 
       - name: Upload logs
         if: always()
