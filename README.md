@@ -1,92 +1,142 @@
-# StockVision
+# StockVision 台股每日 AI 選股系統
 
+每個交易日收盤後，自動抓取台灣全市場股票資料，透過機器學習模型預測哪些個股隔日表現可能優於大盤，並將看好 / 看淡清單推播至 LINE 群組。
 
+---
 
-## Getting started
+## 用途
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- 每日自動收集上市 + 上櫃全市場 OHLCV、三大法人、融資融券資料
+- 以 LightGBM 模型預測個股隔日超額報酬方向
+- 透過 LINE Flex Message 推播選股結果（含 AI 理由）
+- 後台管理介面查看 LINE 成員清單與預測比對結果
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+---
 
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## 技術架構
 
 ```
-cd existing_repo
-git remote add origin http://gitlab/dc/stockvision.git
-git branch -M main
-git push -uf origin main
+資料收集層
+├── yfinance          → OHLCV 日線資料（38,000+ 支）
+├── TWSE / TPEX API   → 三大法人買賣超
+└── TWSE / TPEX API   → 融資融券餘額
+
+特徵工程層
+├── 技術指標（MA、RSI、MACD、KD、布林通道）
+├── 三大法人籌碼特徵（外資連續買超天數、5日淨買超）
+└── 融資融券特徵（餘額變化率）
+
+模型層
+└── LightGBM 二元分類模型（lgbm_model.pkl）
+
+推播層
+├── LINE Messaging API → Flex Message 推播
+└── Cloudflare Tunnel  → Webhook 接收 LINE 事件
+
+後台介面
+├── FastAPI            → REST API
+├── Vue 3 + Vite       → 前端 SPA
+└── 登入驗證（Bearer Token）
 ```
 
-## Integrate with your tools
+**自動化排程：** Windows 工作排程器，每日 17:30 觸發 `daily_run.py`
 
-- [ ] [Set up project integrations](http://gitlab/dc/stockvision/-/settings/integrations)
+---
 
-## Collaborate with your team
+## 模型訓練
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+**目標變數：**
+```
+label = 1  if  個股明日漲幅 − 加權指數明日漲幅 > 0
+label = 0  otherwise
+```
 
-## Test and Deploy
+**訓練流程：**
+1. 以近 5 年歷史資料建立特徵快照
+2. `TimeSeriesSplit`（5-fold）時序交叉驗證，防止未來資料洩漏
+3. AUC 評估預測力，門檻 0.52
+4. 全量資料訓練最終模型
 
-Use the built-in continuous integration in GitLab.
+**為什麼選 LightGBM：**
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+| 考量 | 說明 |
+|------|------|
+| 速度 | 直方圖梯度提升，大量特徵下訓練速度遠快於傳統 GBDT |
+| 缺失值容忍 | 三大法人 / 融資券資料並非每支股票都有，原生支援 NaN |
+| 特徵重要性 | 內建 feature importance，方便診斷哪類指標真正有預測力 |
+| 小樣本穩定 | `min_child_samples` 防止在冷門股小樣本上過擬合 |
+| 無需正規化 | 對特徵尺度不敏感，技術指標與籌碼資料單位差異大也不影響 |
 
-***
+---
 
-# Editing this README
+## 快速開始
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+### 1. 安裝依賴
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+cd api
+uv sync
+```
 
-## Name
-Choose a self-explaining name for your project.
+### 2. 設定環境變數
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+複製 `.env.example` 為 `.env` 並填入：
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```
+ANTHROPIC_API_KEY=
+LINE_CHANNEL_ACCESS_TOKEN=
+LINE_CHANNEL_SECRET=
+LINE_GROUP_ID=
+ADMIN_USERNAME=
+ADMIN_PASSWORD=
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### 3. 初始化歷史資料（一次性）
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+uv run python scripts/bootstrap.py
+uv run python scripts/train.py
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### 4. 啟動服務
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+# 後端（Webhook + API）
+uv run python scripts/webhook_server.py
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+# 前端
+cd web && npm run dev
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### 5. 手動觸發每日 Pipeline
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+```bash
+uv run python scripts/daily_run.py
+# 或指定日期
+uv run python scripts/daily_run.py --date 2026-05-05
+```
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+---
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## 專案結構
 
-## License
-For open source projects, say how it is licensed.
+```
+api/
+├── scripts/
+│   ├── bootstrap.py      # 一次性歷史資料初始化
+│   ├── train.py          # 模型訓練
+│   ├── daily_run.py      # 每日 Pipeline
+│   └── webhook_server.py # 後端服務入口
+├── src/
+│   ├── collect/          # 資料收集（OHLCV、三大法人、融資券）
+│   ├── features/         # 特徵工程
+│   ├── model/            # 模型推理
+│   ├── notify/           # LINE 推播 & Webhook
+│   ├── report/           # 報告生成
+│   └── web/              # FastAPI 後端
+web/                      # Vue 3 前端
+```
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+---
+
+> 本系統預測結果僅供參考，不構成投資建議。
