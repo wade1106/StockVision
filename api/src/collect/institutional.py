@@ -29,18 +29,26 @@ def _fetch_twse_institutional(target_date: date) -> pd.DataFrame:
     if data.get("stat") != "OK" or not data.get("data"):
         return pd.DataFrame()
 
-    cols = ["code", "name",
-            "foreign_buy", "foreign_sell", "foreign_net",
-            "investment_trust_buy", "investment_trust_sell", "investment_trust_net",
-            "dealer_net", "dealer_self_net", "dealer_hedge_net",
-            "total_net"]
+    # 欄位依位置抓取，相容 12 欄與 19 欄格式
+    # 12 欄: code,name, 外資(3), 投信(3), 自營(3), total_net
+    # 19 欄: code,name, 外資(3), 投信(3), 自營自行(3), 自營避險(3), dealer_net, 合計(3), extra
+    COL_MAP = {
+        "code": 0, "name": 1,
+        "foreign_buy": 2, "foreign_sell": 3, "foreign_net": 4,
+        "investment_trust_buy": 5, "investment_trust_sell": 6, "investment_trust_net": 7,
+    }
 
     rows = []
     for row in data["data"]:
-        clean = [c.replace(",", "").strip() for c in row]
-        rows.append(clean)
+        clean = [str(c).replace(",", "").strip() if c is not None else "0" for c in row]
+        n = len(clean)
+        record = {k: clean[i] for k, i in COL_MAP.items() if i < n}
+        # dealer_net 和 total_net 依欄位數選對應位置
+        record["dealer_net"] = clean[14] if n >= 15 else (clean[8] if n >= 9 else "0")
+        record["total_net"]  = clean[17] if n >= 18 else (clean[11] if n >= 12 else "0")
+        rows.append(record)
 
-    df = pd.DataFrame(rows, columns=cols[:len(rows[0])] if rows else cols)
+    df = pd.DataFrame(rows)
     df["date"] = pd.Timestamp(target_date)
 
     numeric_cols = [c for c in df.columns if c not in ("code", "name", "date")]
@@ -56,25 +64,44 @@ def _fetch_tpex_institutional(target_date: date) -> pd.DataFrame:
     resp = requests.get(TPEX_INST_URL, params=params, headers=HEADERS, timeout=30)
     data = resp.json()
 
-    if not data.get("iTotalRecords"):
-        return pd.DataFrame()
+    # 新格式：tables[0]["data"]；舊格式：aaData
+    if "tables" in data:
+        tables = data.get("tables", [])
+        if not tables or not tables[0].get("data"):
+            return pd.DataFrame()
+        rows = tables[0]["data"]
+    else:
+        if not data.get("iTotalRecords"):
+            return pd.DataFrame()
+        rows = data.get("aaData", [])
 
-    rows = data.get("aaData", [])
     if not rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
-    df = df.iloc[:, :12]
-    df.columns = ["code", "name",
-                  "foreign_buy", "foreign_sell", "foreign_net",
-                  "investment_trust_buy", "investment_trust_sell", "investment_trust_net",
-                  "dealer_net", "dealer_self_net", "dealer_hedge_net",
-                  "total_net"]
+    records = []
+    for row in rows:
+        clean = [str(c).replace(",", "").strip() if c is not None else "0" for c in row]
+        n = len(clean)
+        record = {
+            "code": clean[0],
+            "name": clean[1],
+            "foreign_buy":            clean[2]  if n > 2  else "0",
+            "foreign_sell":           clean[3]  if n > 3  else "0",
+            "foreign_net":            clean[4]  if n > 4  else "0",
+            "investment_trust_buy":   clean[5]  if n > 5  else "0",
+            "investment_trust_sell":  clean[6]  if n > 6  else "0",
+            "investment_trust_net":   clean[7]  if n > 7  else "0",
+            "dealer_net":             clean[16] if n > 16 else (clean[8] if n > 8 else "0"),
+            "total_net":              clean[23] if n > 23 else (clean[11] if n > 11 else "0"),
+        }
+        records.append(record)
+
+    df = pd.DataFrame(records)
     df["date"] = pd.Timestamp(target_date)
 
     numeric_cols = [c for c in df.columns if c not in ("code", "name", "date")]
     for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 

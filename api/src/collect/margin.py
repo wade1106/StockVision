@@ -27,23 +27,35 @@ def _fetch_twse_margin(target_date: date) -> pd.DataFrame:
     if data.get("stat") != "OK":
         return pd.DataFrame()
 
-    # 取融資融券餘額表（通常在 data[1]）
+    # 找列數最多的 table（股票明細表）
     tables = data.get("tables", [])
-    target = None
-    for t in tables:
-        if "融資" in t.get("title", ""):
-            target = t
-            break
+    target = max(tables, key=lambda t: len(t.get("data", [])), default=None)
 
     if not target or not target.get("data"):
         return pd.DataFrame()
 
-    cols = ["code", "name",
-            "margin_buy", "margin_sell", "margin_redeem", "margin_balance", "margin_limit",
-            "short_buy", "short_sell", "short_redeem", "short_balance", "short_limit",
-            "offset"]
-    rows = [[c.replace(",", "").strip() for c in row] for row in target["data"]]
-    df = pd.DataFrame(rows, columns=cols[:len(rows[0])] if rows else cols)
+    # 欄位位置固定：margin_balance=5, short_balance=10，相容 13 或 16 欄
+    records = []
+    for row in target["data"]:
+        clean = [str(c).replace(",", "").strip() if c is not None else "0" for c in row]
+        n = len(clean)
+        if n < 6:
+            continue
+        records.append({
+            "code":           clean[0],
+            "name":           clean[1],
+            "margin_buy":     clean[2] if n > 2 else "0",
+            "margin_sell":    clean[3] if n > 3 else "0",
+            "margin_balance": clean[5] if n > 5 else "0",
+            "short_sell":     clean[7] if n > 7 else "0",
+            "short_buy":      clean[8] if n > 8 else "0",
+            "short_balance":  clean[10] if n > 10 else "0",
+        })
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
     df["date"] = pd.Timestamp(target_date)
 
     numeric_cols = [c for c in df.columns if c not in ("code", "name", "date")]
@@ -59,21 +71,43 @@ def _fetch_tpex_margin(target_date: date) -> pd.DataFrame:
     resp = requests.get(TPEX_MARGIN_URL, params=params, headers=HEADERS, timeout=30)
     data = resp.json()
 
-    rows = data.get("aaData", [])
+    # 新格式：tables[0]["data"]；舊格式：aaData
+    if "tables" in data:
+        tables = data.get("tables", [])
+        rows = tables[0].get("data", []) if tables else []
+    else:
+        rows = data.get("aaData", [])
+
     if not rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
-    df = df.iloc[:, :13]
-    df.columns = ["code", "name",
-                  "margin_prev", "margin_buy", "margin_sell", "margin_redeem", "margin_balance",
-                  "short_prev", "short_buy", "short_sell", "short_redeem", "short_balance",
-                  "offset"]
+    # 舊格式(13欄): margin_balance=col6, short_balance=col11
+    # 新格式(20欄): margin_balance=col6, short_balance=col14
+    records = []
+    for row in rows:
+        clean = [str(c).replace(",", "").strip() if c is not None else "0" for c in row]
+        n = len(clean)
+        if n < 7:
+            continue
+        short_balance_idx = 14 if n >= 15 else 11
+        records.append({
+            "code":           clean[0],
+            "name":           clean[1],
+            "margin_buy":     clean[3] if n > 3 else "0",
+            "margin_sell":    clean[4] if n > 4 else "0",
+            "margin_balance": clean[6] if n > 6 else "0",
+            "short_balance":  clean[short_balance_idx] if n > short_balance_idx else "0",
+        })
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
     df["date"] = pd.Timestamp(target_date)
 
     numeric_cols = [c for c in df.columns if c not in ("code", "name", "date")]
     for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
 
