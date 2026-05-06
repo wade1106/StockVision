@@ -1,9 +1,7 @@
 name: Daily Stock Report
 
 on:
-  schedule:
-    - cron: "30 9 * * 1-5"  # 09:30 UTC = 17:30 TST，週一至週五
-  workflow_dispatch:         # 允許手動觸發
+  workflow_dispatch:         # 僅允許手動觸發
     inputs:
       date:
         description: "執行日期（YYYY-MM-DD），留空使用今日"
